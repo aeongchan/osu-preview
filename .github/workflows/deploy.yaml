@@ -1,0 +1,28 @@
+# Simple workflow for deploying static content to GitHub Pages
+name: JoSu! 2.0 Deployment
+
+on:
+  push:
+    branches: ['master']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to proxy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: 22
+          script: |
+            export NVM_DIR=~/.nvm
+            source ~/.nvm/nvm.sh
+            PATH="/home/ubuntu/.bun/bin/:$PATH"
+            cd ~/beatmap-2.0/beatmap-viewer-web 
+            git pull
+            git status
+            bun install
+            bun run build
+            pm2 restart beatmap-2.0
