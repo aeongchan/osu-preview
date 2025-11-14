@@ -11,7 +11,7 @@ const sanitizeINI = (str: string) =>
 		.split("\n")
 		.filter((line) => /(^\[.*\])|(^(\s|\t)*[a-zA-Z0-9]+\s*:.*)/g.test(line))
 		.join("\n")
-		.replaceAll(/((\/\/)|(--)|(;)|(==)).*/g, "");
+		.replaceAll(/((\/\/)|(;)|(==)).*/g, "");
 
 export type SkinConfig = {
 	General: {
@@ -89,6 +89,8 @@ export default class Skin {
 			delimiter: ":",
 		});
 
+		console.log(configFile);
+
 		this.config = {
 			General: {
 				...this.config.General,
@@ -150,6 +152,7 @@ export default class Skin {
 			"hit50",
 			"hit0",
 			"sliderb",
+			"sliderfollowcircle"
 		];
 
 		await Promise.all([
