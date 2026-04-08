@@ -1,13 +1,17 @@
 import { Tween } from "@tweenjs/tween.js";
 import { Container } from "pixi.js";
 import type ExperimentalConfig from "@/Config/ExperimentalConfig";
-import { inject } from "@/Context";
+import { inject, ScopedClass } from "@/Context";
 import type ResponsiveHandler from "@/ResponsiveHandler";
 import { defaultEasing, tweenGroup } from "@/UI/animation/AnimationController";
 import FPS from "../FPS";
 import type Gameplay from ".";
 
-export default class Gameplays {
+type GameplayEvents = "add" | "remove" | "change";
+
+export type GameplaysEventCallback = (val: unknown) => unknown;
+
+export default class Gameplays extends ScopedClass {
 	container = new Container({
 		label: "gameplays",
 		layout: {
@@ -15,11 +19,16 @@ export default class Gameplays {
 			flex: 1,
 		},
 		interactive: true,
+		zIndex: 1,
 	});
 
 	gameplays: Set<Gameplay> = new Set();
 
+	private _callbacks = new Map<GameplayEvents, Set<GameplaysEventCallback>>();
+
 	addGameplay(gameplay: Gameplay, index?: number) {
+		gameplay.hook(this.context);
+
 		if (index === undefined) this.gameplays.add(gameplay);
 		else {
 			const deserialized = [...this.gameplays];
@@ -30,8 +39,10 @@ export default class Gameplays {
 			];
 			this.gameplays = new Set(newArr);
 		}
-		this.container.addChildAt(gameplay.container, 0);
+		this.container.addChild(...[...this.gameplays].toReversed().map(gameplay => gameplay.container), this.fps.container);
 
+		this._emitChange("add");
+		this._emitChange("change");
 		this.reLayoutChildren(gameplay);
 	}
 
@@ -39,13 +50,15 @@ export default class Gameplays {
 		this.gameplays.delete(gameplay);
 		this.container.removeChild(gameplay.container);
 
+		this._emitChange("remove");
+		this._emitChange("change");
 		this.reLayoutChildren();
 	}
 
 	switchGameplay(a: Gameplay, b: Gameplay) {
 		const deserialized = [...this.gameplays];
-		const idxA = deserialized.findIndex((beatmap) => beatmap === a);
-		const idxB = deserialized.findIndex((beatmap) => beatmap === b);
+		const idxA = deserialized.indexOf(a);
+		const idxB = deserialized.indexOf(b);
 
 		if (idxA === -1 || idxB === -1) return;
 		deserialized[idxA] = b;
@@ -58,8 +71,13 @@ export default class Gameplays {
 	w = 0;
 	h = 0;
 
+	fps: FPS;
 	constructor() {
+		super();
+		this.context.provide<number>("clients", 0);
+
 		const fps = new FPS();
+		this.fps = fps;
 
 		this.container.addChild(fps.container);
 		this.container.on("layout", (layout) => {
@@ -98,13 +116,18 @@ export default class Gameplays {
 
 		inject<ExperimentalConfig>("config/experimental")?.onChange(
 			"overlapGameplays",
-			() => this.reLayoutChildren(),
+			() => {
+				this.reLayoutChildren();
+				this._emitChange("change");
+			},
 		);
 	}
 
 	tweenMap: Map<Gameplay, Tween> = new Map();
 
 	reLayoutChildren(target?: Gameplay) {
+		this.context.provide<number>("clients", this.gameplays.size);
+
 		const overlapGameplays = inject<ExperimentalConfig>(
 			"config/experimental",
 		)?.overlapGameplays;
@@ -239,13 +262,35 @@ export default class Gameplays {
 			if (w !== 100) {
 				gameplay.showDiffName(i !== 0 && !overlapGameplays);
 
-				const scale = Math.min(1, 1 / columnsCount * 1.5);
+				const scale = Math.min(1, (1 / columnsCount) * 1.5);
 
 				gameplay.statsContainer.scale.set(scale);
 			} else {
 				gameplay.hideDiffName();
 				gameplay.statsContainer.scale.set(1);
 			}
+		}
+	}
+
+	on(event: GameplayEvents, callback: GameplaysEventCallback) {
+		if (!this._callbacks.get(event)) {
+			this._callbacks.set(event, new Set());
+		}
+
+		this._callbacks.get(event)?.add(callback);
+		return callback;
+	}
+
+	remove(event: GameplayEvents, callback: GameplaysEventCallback) {
+		this._callbacks.get(event)?.delete(callback);
+	}
+
+	_emitChange(event: GameplayEvents, val?: unknown) {
+		const callbacks = this._callbacks.get(event);
+		if (!callbacks) return;
+
+		for (const callback of callbacks) {
+			callback(val);
 		}
 	}
 }

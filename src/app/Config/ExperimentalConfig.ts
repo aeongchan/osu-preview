@@ -6,7 +6,10 @@ export type ExperimentalProps = {
 	hidden?: boolean;
 	hardRock?: boolean;
 	doubleTime?: boolean;
+	easy?: boolean;
 };
+
+type Mods = "hidden" | "hardRock" | "doubleTime" | "easy"
 
 export default class ExperimentalConfig extends ConfigSection {
 	constructor(defaultOptions?: ExperimentalProps) {
@@ -16,22 +19,22 @@ export default class ExperimentalConfig extends ConfigSection {
 
 		if (!defaultOptions) return;
 
-		const { asyncLoading, overlapGameplays, hidden, hardRock, doubleTime } =
-			defaultOptions;
+		const { asyncLoading, overlapGameplays } = defaultOptions;
 		this.asyncLoading = asyncLoading ?? true;
 		this.overlapGameplays = overlapGameplays ?? false;
-		this.hidden =
-			hidden ??
-			new URLSearchParams(window.location.search).get("m")?.includes("HD") ??
-			false;
-		this.hardRock =
-			hardRock ??
-			new URLSearchParams(window.location.search).get("m")?.includes("HR") ??
-			false;
-		this.doubleTime =
-			doubleTime ??
-			new URLSearchParams(window.location.search).get("m")?.includes("DT") ??
-			false;
+
+		const searchParams = new URLSearchParams(window.location.search).get("m");
+		const modMap: [string, Mods][] = [
+			["HD", "hidden"],
+			["HR", "hardRock"],
+			["DT", "doubleTime"],
+			["EZ", "easy"]
+		]
+		
+		for (const [abbr, mod] of modMap) {
+			if (!searchParams?.includes(abbr)) continue;
+			this[mod] = true;
+		}
 	}
 
 	private _asyncLoading = true;
@@ -62,7 +65,7 @@ export default class ExperimentalConfig extends ConfigSection {
 		this.emitChange("overlapGameplays", val);
 	}
 
-	private _hardRock = true;
+	private _hardRock = false;
 	get hardRock() {
 		return this._hardRock;
 	}
@@ -73,6 +76,11 @@ export default class ExperimentalConfig extends ConfigSection {
 		if (!ele) return;
 		ele.checked = val;
 
+		const EZ = document.querySelector<HTMLInputElement>("#modsEZ");
+		if (!EZ) return;
+		EZ.checked = false;
+		this._easy = false;
+
 		this.emitChange("mods", {
 			shouldRecalculate: true,
 			shouldPlaybackChange: false,
@@ -80,7 +88,7 @@ export default class ExperimentalConfig extends ConfigSection {
 		});
 	}
 
-	private _doubleTime = true;
+	private _doubleTime = false;
 	get doubleTime() {
 		return this._doubleTime;
 	}
@@ -98,7 +106,7 @@ export default class ExperimentalConfig extends ConfigSection {
 		});
 	}
 
-	private _hidden = true;
+	private _hidden = false;
 	get hidden() {
 		return this._hidden;
 	}
@@ -116,12 +124,36 @@ export default class ExperimentalConfig extends ConfigSection {
 		});
 	}
 
+	private _easy = false;
+	get easy() {
+		return this._easy;
+	}
+	set easy(val: boolean) {
+		this._easy = val;
+
+		const ele = document.querySelector<HTMLInputElement>("#modsEZ");
+		if (!ele) return;
+		ele.checked = val;
+
+		const HR = document.querySelector<HTMLInputElement>("#modsHR");
+		if (!HR) return;
+		HR.checked = false;
+		this._hardRock = false;
+
+		this.emitChange("mods", {
+			shouldRecalculate: true,
+			shouldPlaybackChange: false,
+			mods: this.getModsString(),
+		});
+	}
+
 	getModsString() {
 		const HD = this.hidden ? "HD" : "";
 		const HR = this.hardRock ? "HR" : "";
 		const DT = this.doubleTime ? "DT" : "";
+		const EZ = this.easy ? "EZ" : "";
 
-		return `${HD}${HR}${DT}`;
+		return `${HD}${HR}${DT}${EZ}`;
 	}
 
 	loadEventListeners() {
@@ -148,6 +180,12 @@ export default class ExperimentalConfig extends ConfigSection {
 			?.addEventListener("change", (event) => {
 				const value = (event.target as HTMLInputElement)?.checked ?? true;
 				this.doubleTime = value;
+			});
+		document
+			.querySelector<HTMLInputElement>("#modsEZ")
+			?.addEventListener("change", (event) => {
+				const value = (event.target as HTMLInputElement)?.checked ?? true;
+				this.easy = value;
 			});
 	}
 

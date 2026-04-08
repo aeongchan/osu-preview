@@ -1,12 +1,15 @@
 import { LayoutContainer } from "@pixi/layout/components";
+import type BackgroundConfig from "@/Config/BackgroundConfig";
 import type FullscreenConfig from "@/Config/FullscreenConfig";
 import { inject, provide } from "@/Context";
 import type ResponsiveHandler from "@/ResponsiveHandler";
+import { Clamp } from "@/utils";
+import type Controls from "../controls";
 import Background from "./Background";
 import Gameplays from "./Gameplay/Gameplays";
 import Timeline from "./Timeline";
-import Zoomer from "./Timeline/Zoomer";
 import Beatsnap from "./Timeline/Beatsnap";
+import Zoomer from "./Timeline/Zoomer";
 
 export default class Viewer {
 	container = new LayoutContainer({
@@ -22,7 +25,7 @@ export default class Viewer {
 		interactive: true,
 	});
 
-	constructor() {
+	constructor(controls: Controls) {
 		const timeline = provide("ui/main/viewer/timeline", new Timeline());
 		const zoomer = provide("ui/main/viewer/zoomer", new Zoomer());
 		const beatsnap = provide("ui/main/viewer/beatsnap", new Beatsnap());
@@ -37,14 +40,22 @@ export default class Viewer {
 					r: 0,
 					g: 0,
 					b: 0,
-					a: 0.8,
+					a: Clamp(
+						(inject<BackgroundConfig>("config/background")?.backgroundDim ??
+							80) /
+							100 +
+							0.1,
+						0,
+						1,
+					),
 				},
 			},
+			zIndex: 2,
 		});
 
 		wrapper.addChild(timeline.container, zoomer.container, beatsnap.container);
 
-		this.container.addChild(background.container, wrapper, gameplays.container);
+		this.container.addChild(background.container, wrapper, gameplays.container, controls.container);
 
 		inject<FullscreenConfig>("config/fullscreen")?.onChange(
 			"fullscreen",
@@ -87,6 +98,20 @@ export default class Viewer {
 
 				wrapper.layout = {
 					height: isFullscreen ? (direction === "portrait" ? 80 : 0) : 80,
+				};
+			},
+		);
+
+		inject<BackgroundConfig>("config/background")?.onChange(
+			"backgroundDim",
+			(val) => {
+				wrapper.layout = {
+					backgroundColor: {
+						r: 0,
+						g: 0,
+						b: 0,
+						a: Clamp(val / 100 + 0.1, 0, 1),
+					},
 				};
 			},
 		);

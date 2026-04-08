@@ -3,7 +3,6 @@ import { LayoutContainer } from "@pixi/layout/components";
 import { Tween } from "@tweenjs/tween.js";
 import { Vector2 } from "osu-classes";
 import {
-	// Application,
 	Assets,
 	Container,
 	Graphics,
@@ -19,8 +18,10 @@ import DrawableHitCircle from "@/BeatmapSet/Beatmap/HitObjects/DrawableHitCircle
 import DrawableSlider from "@/BeatmapSet/Beatmap/HitObjects/DrawableSlider";
 import type BackgroundConfig from "@/Config/BackgroundConfig";
 import type ColorConfig from "@/Config/ColorConfig";
+import type ExperimentalConfig from "@/Config/ExperimentalConfig";
+import type FullscreenConfig from "@/Config/FullscreenConfig";
 import type GameplayConfig from "@/Config/GameplayConfig";
-import { inject } from "@/Context";
+import { inject, ScopedClass } from "@/Context";
 import { tweenGroup } from "@/UI/animation/AnimationController";
 import Easings from "@/UI/Easings";
 import Spinner from "./Spinner";
@@ -38,7 +39,7 @@ const defaultLayout: Omit<LayoutOptions, "target"> = {
 	objectFit: "none",
 };
 
-export default class Gameplay {
+export default class Gameplay extends ScopedClass {
 	container: Container;
 	wrapper: Container;
 	grid: Graphics;
@@ -60,6 +61,8 @@ export default class Gameplay {
 	selected: Set<number> = new Set();
 
 	constructor(public beatmap: Beatmap) {
+		super();
+
 		this.container = new Container({
 			label: "gameplay",
 			layout: {
@@ -124,6 +127,7 @@ export default class Gameplay {
 			interactive: false,
 			eventMode: "none",
 			visible: inject<GameplayConfig>("config/gameplay")?.showGrid ?? true,
+			alpha: 0.5
 		});
 		this.drawGrid(512);
 
@@ -139,36 +143,7 @@ export default class Gameplay {
 			this.selector,
 			this.cursorLayer,
 		);
-		this.wrapper.on("layout", () => {
-			const width = this.wrapper.layout?.computedLayout.width ?? 0;
-			const height = this.wrapper.layout?.computedLayout.height ?? 0;
-
-			const scale = Math.min(width / 640, height / 480);
-			const _w = 512 * scale;
-			const _h = 384 * scale;
-
-			this.objectsContainer.scale.set(scale);
-
-			this.objectsContainer.x = (width - _w) / 2;
-			this.objectsContainer.y = (height - _h) / 2;
-
-			this.cursorLayer.scale.set(scale);
-			this.cursorLayer.x = (width - _w) / 2;
-			this.cursorLayer.y = (height - _h) / 2;
-
-			this.grid.x = (width - _w) / 2;
-			this.grid.y = (height - _h) / 2;
-
-			this.drawGrid(_w);
-
-			this.selectContainer.scale.set(scale);
-
-			this.selectContainer.x = (width - _w) / 2;
-			this.selectContainer.y = (height - _h) / 2;
-
-			this.spinner.graphics.x = width / 2;
-			this.spinner.graphics.y = height / 2;
-		});
+		this.wrapper.on("layout", () => this.reLayout());
 
 		this.loadEventListeners();
 
@@ -226,6 +201,47 @@ export default class Gameplay {
 		);
 	}
 
+	reLayout() {
+		const isFullscreen =
+			inject<FullscreenConfig>("config/fullscreen")?.fullscreen;
+
+		const shouldKeepScale =
+			isFullscreen ||
+			(this.context.consume<number>("clients") !== 1 &&
+				!inject<ExperimentalConfig>("config/experimental")?.overlapGameplays);
+
+		const width = this.wrapper.layout?.computedLayout.width ?? 0;
+		const height = this.wrapper.layout?.computedLayout.height ?? 0;
+
+		const scale = Math.min(width / 640, height / 480);
+		const _w = 512 * scale;
+		const _h = 384 * scale;
+
+		this.objectsContainer.scale.set(scale);
+
+		this.objectsContainer.x = (width - _w) / 2;
+		this.objectsContainer.y = (height - _h) / 2;
+
+		this.cursorLayer.scale.set(scale);
+		this.cursorLayer.x = (width - _w) / 2;
+		this.cursorLayer.y = (height - _h) / 2;
+
+		this.grid.x = (width - _w) / 2;
+		this.grid.y = (height - _h) / 2;
+
+		this.drawGrid(_w);
+
+		this.selectContainer.scale.set(scale);
+
+		this.selectContainer.x = (width - _w) / 2;
+		this.selectContainer.y = (height - _h) / 2;
+
+		this.spinner.graphics.x = width / 2;
+		this.spinner.graphics.y = height / 2;
+
+		this.wrapper.scale.set(shouldKeepScale ? 1 : 0.98 / 0.8);
+	}
+
 	private _currentTween?: Tween;
 
 	drawGrid(width = 512) {
@@ -233,7 +249,7 @@ export default class Gameplay {
 		const height = 384 * scale;
 		const unit = 32 * scale;
 		const halfUnit = unit / 2;
-		const cornerRadius = 10 * scale;
+		const cornerRadius = 8 * scale;
 
 		this.grid.clear().roundRect(0, 0, width, height, cornerRadius).stroke({
 			color: 0xffffff,
@@ -243,15 +259,6 @@ export default class Gameplay {
 		});
 
 		for (let i = unit; i < width - 1; i += unit) {
-			if (i === width / 2) {
-				this.grid.moveTo(i, 0).lineTo(i, height).stroke({
-					color: 0xffffff,
-					alpha: 0.6,
-					width: 2,
-					alignment: 0.5,
-				});
-				continue;
-			}
 			this.grid.moveTo(i, 0).lineTo(i, height).stroke({
 				color: 0xffffff,
 				alpha: 0.4,
@@ -259,16 +266,7 @@ export default class Gameplay {
 			});
 		}
 
-		for (let i = unit; i < height; i += unit) {
-			if (i === height / 2) {
-				this.grid.moveTo(0, i).lineTo(width, i).stroke({
-					color: 0xffffff,
-					alpha: 0.6,
-					width: 2,
-					alignment: 0.5,
-				});
-				continue;
-			}
+		for (let i = unit; i < height - 1; i += unit) {
 			this.grid.moveTo(0, i).lineTo(width, i).stroke({
 				color: 0xffffff,
 				alpha: 0.4,
@@ -336,6 +334,28 @@ export default class Gameplay {
 				alignment: 0.5,
 				cap: "round",
 				join: "round",
+			});
+
+		this.grid
+			.moveTo(width / 2, 0)
+			.lineTo(width / 2, height)
+			.stroke({
+				color: 0xffffff,
+				alpha: 1,
+				width: 1,
+				alignment: 0.5,
+				pixelLine: false,
+			});
+
+		this.grid
+			.moveTo(0, height / 2)
+			.lineTo(width, height / 2)
+			.stroke({
+				color: 0xffffff,
+				alpha: 1,
+				width: 1,
+				alignment: 0.5,
+				pixelLine: false,
 			});
 	}
 
@@ -530,7 +550,7 @@ export default class Gameplay {
 			const bms = this.beatmap.context.consume<BeatmapSet>("beatmapset");
 			if (!bms) return;
 
-			const idx = bms.difficulties.findIndex((b) => b === this.beatmap);
+			const idx = bms.difficulties.indexOf(this.beatmap);
 			bms.unloadSlave(idx);
 		};
 		closeButtonContainer.addEventListener("pointertap", () => unloadSelf());

@@ -13,32 +13,37 @@ import {
 	StandardHitObject,
 } from "osu-standard-stable";
 import {
-	AlphaFilter,Buffer, 
+	AlphaFilter,
+	Buffer,
 	BufferUsage,
 	Container,
 	Geometry,
 	GpuProgram,
 	Graphics,
-	Mesh, 
+	Mesh,
 	RenderLayer,
-	Shader
+	Shader,
 } from "pixi.js";
 import type BeatmapSet from "@/BeatmapSet";
+import type ExperimentalConfig from "@/Config/ExperimentalConfig";
 import type GameplayConfig from "@/Config/GameplayConfig";
 import type RendererConfig from "@/Config/RendererConfig";
 import type SkinningConfig from "@/Config/SkinningConfig";
 import { type Context, inject } from "@/Context";
 import {
+	refreshColor as argonRefreshColor,
 	refreshSprite as argonRefreshSprite,
 	update as argonUpdate,
 } from "@/Skinning/Argon/ArgonSlider";
 import {
+	refreshColor as legacyRefreshColor,
 	refreshSprite as legacyRefreshSprite,
 	update as legacyUpdate,
 } from "@/Skinning/Legacy/LegacySlider";
 import type Skin from "@/Skinning/Skin";
 import type SkinManager from "@/Skinning/SkinManager";
 import type ProgressBar from "@/UI/main/controls/ProgressBar";
+import type Gameplays from "@/UI/main/viewer/Gameplay/Gameplays";
 import HitSample from "../../../Audio/HitSample";
 import { Clamp, closestPointTo, darken, lighten } from "../../../utils";
 import type Beatmap from "..";
@@ -141,7 +146,10 @@ export default class DrawableSlider
 		filters: [this._alphaFilter],
 		x: 0,
 		y: 0,
-		blendMode: inject<RendererConfig>("config/renderer")?.renderer === "webgl" ? "none" : "max",
+		blendMode:
+			inject<RendererConfig>("config/renderer")?.renderer === "webgl"
+				? "none"
+				: "max",
 	});
 
 	public select = new Container();
@@ -287,6 +295,13 @@ export default class DrawableSlider
 		this.skinEventCallback = this.skinManager?.addSkinChangeListener(() =>
 			this.refreshSprite(),
 		);
+		this.gameplaysEventCallback = inject<Gameplays>(
+			"ui/main/viewer/gameplays",
+		)?.on("change", () => this.refreshColor());
+		inject<ExperimentalConfig>("config/experimental")?.onChange(
+			"overlapGameplays",
+			() => this.refreshColor(),
+		);
 
 		this._shader.resources.customUniforms.uniforms.scale =
 			(object.radius / 54.4) * (236 / 256);
@@ -339,6 +354,10 @@ export default class DrawableSlider
 
 	set object(val: Slider) {
 		this._object = val;
+		
+		this._cachedHead = -1;
+		this._cachedTail = -1;
+		this._cachedScale = -1;
 
 		this.nodes.clear();
 		for (let i = 0; i < val.path.controlPoints.length; i++) {
@@ -493,6 +512,17 @@ export default class DrawableSlider
 		}
 	}
 
+	refreshColor() {
+		const skin = this.skinManager?.getCurrentSkin();
+		if (!skin) return;
+
+		if (skin.config.General.Argon) {
+			argonRefreshColor(this);
+		} else {
+			legacyRefreshColor(this);
+		}
+	}
+
 	getColor(skin: Skin) {
 		const beatmap = this.context.consume<Beatmap>("beatmapObject");
 		if (
@@ -559,6 +589,10 @@ export default class DrawableSlider
 		);
 	}
 
+	private _cachedHead = -1;
+	private _cachedTail = -1;
+	private _cachedScale = -1;
+
 	updateGeometry(progressHead = 0, progressTail = 0, scale = 1) {
 		const snakeIn = inject<GameplayConfig>("config/gameplay")?.snakeInSlider;
 		const snakeOut = inject<GameplayConfig>("config/gameplay")?.snakeOutSlider;
@@ -574,6 +608,17 @@ export default class DrawableSlider
 
 		head = snakeOut ? head : 0;
 		tail = snakeIn ? tail : 1;
+
+		if (
+			this._cachedHead === head &&
+			this._cachedTail === tail &&
+			this._cachedScale === scale
+		)
+			return;
+
+		this._cachedHead = head;
+		this._cachedTail = tail;
+		this._cachedScale = scale;
 
 		const path = calculateSliderProgress(this.object.path, head, tail);
 		this.path = path;
@@ -734,5 +779,11 @@ export default class DrawableSlider
 
 		if (this.skinEventCallback)
 			this.skinManager?.removeSkinChangeListener(this.skinEventCallback);
+
+		if (this.gameplaysEventCallback)
+			inject<Gameplays>("ui/main/viewer/gameplays")?.remove(
+				"change",
+				this.gameplaysEventCallback,
+			);
 	}
 }

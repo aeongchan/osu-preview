@@ -5,6 +5,7 @@ import AnimationController, {
 	tweenGroup,
 } from "./UI/animation/AnimationController";
 import "./FPSSystem";
+import axios from "axios";
 import BeatmapSet from "./BeatmapSet";
 import Replay from "./BeatmapSet/Beatmap/Replay";
 import {
@@ -24,6 +25,7 @@ import Loading from "./UI/loading";
 import Main from "./UI/main";
 import SidePanel from "./UI/sidepanel";
 import ZipHandler from "./ZipHandler";
+import type Gameplays from "./UI/main/viewer/Gameplay/Gameplays";
 
 // import { debounce } from "./utils";
 
@@ -284,13 +286,13 @@ export class Game {
 
 			inject<Loading>("ui/loading")?.off();
 			document
-				.querySelector<HTMLDivElement>("#diffsContainer")
+				.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 				?.classList.remove("hidden");
 			document
-				.querySelector<HTMLDivElement>("#diffsContainer")
+				.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 				?.classList.remove("showOut");
 			document
-				.querySelector<HTMLDivElement>("#diffsContainer")
+				.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 				?.classList.add("showIn");
 
 			return;
@@ -309,6 +311,24 @@ export class Game {
 
 			const replay = new Replay();
 			await replay.process(new Blob([file]));
+			
+			const hookReplay = async () => {
+				if (!replay.data?.info.beatmapHashMD5) return;
+				await this.loadHash(replay.data?.info.beatmapHashMD5);
+
+				const bms = inject<BeatmapSet>("beatmapset");
+
+				const bm = bms?.difficulties.findIndex(
+					(bm) => bm.md5 === replay.data?.info.beatmapHashMD5,
+				);
+				if (bm !== -1 && bm !== undefined && bm !== null)
+					bms?.difficulties[bm].hookReplay(replay);
+			}
+			
+			if (!bms) {
+				await hookReplay();
+				return;
+			}
 
 			const bm = bms?.difficulties.findIndex(
 				(bm) => bm.md5 === replay.data?.info.beatmapHashMD5,
@@ -394,17 +414,7 @@ export class Game {
 				});
 
 				fetch.addEventListener("click", async () => {
-					if (!replay.data?.info.beatmapHashMD5) return;
-					await this.loadHash(replay.data?.info.beatmapHashMD5);
-
-					const bms = inject<BeatmapSet>("beatmapset");
-
-					const bm = bms?.difficulties.findIndex(
-						(bm) => bm.md5 === replay.data?.info.beatmapHashMD5,
-					);
-					if (bm !== -1 && bm !== undefined && bm !== null)
-						bms?.difficulties[bm].hookReplay(replay);
-
+					await hookReplay();
 					document.body.removeChild(container);
 				});
 
@@ -439,28 +449,39 @@ export class Game {
 		inject<Loading>("ui/loading")?.off();
 
 		document
-			.querySelector<HTMLDivElement>("#diffsContainer")
+			.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 			?.classList.remove("hidden");
 		document
-			.querySelector<HTMLDivElement>("#diffsContainer")
+			.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 			?.classList.remove("showOut");
 		document
-			.querySelector<HTMLDivElement>("#diffsContainer")
+			.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 			?.classList.add("showIn");
 
 		return true;
 	}
 
 	private async loadFromQuery() {
-		const queries = new URLSearchParams(window.location.search).getAll("b");
+		const searchParams = new URLSearchParams(window.location.search);
+
+		const queries = searchParams.getAll("b");
 		const IDs = queries.length !== 0 ? queries : [];
 
-		if (IDs.length === 0) {
+		const replay = searchParams.get("r");
+
+		if (IDs.length === 0 && !replay) {
 			inject<Loading>("ui/loading")?.off();
 			return false;
 		}
 
-		await this.loadIDs(IDs);
+		if (IDs.length !== 0) {
+			await this.loadIDs(IDs);
+		}
+
+		if (replay) {
+			await this.loadReplayFromLink(replay);
+		}
+
 		return true;
 	}
 
@@ -518,18 +539,18 @@ export class Game {
 
 				if (idx === -1) continue;
 				if (i === 0) await bms.loadMaster(idx);
-				if (i !== 0) bms.loadSlave(idx);
+				if (i !== 0) await bms.loadSlave(idx);
 			}
 
 			if (!bms.master) {
 				document
-					.querySelector<HTMLDivElement>("#diffsContainer")
+					.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 					?.classList.remove("hidden");
 				document
-					.querySelector<HTMLDivElement>("#diffsContainer")
+					.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 					?.classList.remove("showOut");
 				document
-					.querySelector<HTMLDivElement>("#diffsContainer")
+					.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 					?.classList.add("showIn");
 			}
 		} catch (e) {
@@ -561,13 +582,13 @@ export class Game {
 
 			if (!bms.master) {
 				document
-					.querySelector<HTMLDivElement>("#diffsContainer")
+					.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 					?.classList.remove("hidden");
 				document
-					.querySelector<HTMLDivElement>("#diffsContainer")
+					.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 					?.classList.remove("showOut");
 				document
-					.querySelector<HTMLDivElement>("#diffsContainer")
+					.querySelector<HTMLDivElement>("#diffsContainerWrapper")
 					?.classList.add("showIn");
 			}
 		} catch (e) {
@@ -610,6 +631,21 @@ export class Game {
 		await bms.getDifficulties();
 
 		return bms;
+	}
+
+	async loadReplayFromLink(url: string) {
+		inject<Loading>("ui/loading")?.on();
+		const replay = await getBeatmapFromExternalUrl(url);
+
+		if (!replay) {
+			inject<Loading>("ui/loading")?.off();
+			return;
+		}
+
+		const file = new File([replay], "replay.osr");
+		await this.processFile(file);
+		
+		inject<Loading>("ui/loading")?.off();
 	}
 
 	private resize() {
