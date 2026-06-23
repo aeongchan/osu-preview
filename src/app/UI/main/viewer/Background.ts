@@ -8,8 +8,9 @@ export default class Background {
 		strength:
 			((inject<BackgroundConfig>("config/background")?.backgroundBlur ?? 0) /
 				100) *
-			50,
-		quality: 4,
+			15,
+		antialias: false,
+		resolution: 0.5,
 	});
 
 	container = new Container({
@@ -36,7 +37,10 @@ export default class Background {
 			objectPosition: "center",
 			objectFit: "cover",
 		},
-		filters: [this.blurFilter],
+		filters:
+			inject<BackgroundConfig>("config/background")?.backgroundBlur === 0
+				? []
+				: [this.blurFilter],
 	});
 
 	private video = new Sprite({
@@ -83,6 +87,14 @@ export default class Background {
 		inject<BackgroundConfig>("config/background")?.onChange(
 			"backgroundBlur",
 			(value: number) => {
+				if (value === 0) {
+					this.sprite.filters = [];
+				}
+
+				if (value !== 0) {
+					this.sprite.filters = [this.blurFilter];
+				}
+
 				this.blurFilter.strength = (value / 100) * 50;
 			},
 		);
