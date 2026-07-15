@@ -149,14 +149,14 @@ export default class Beatmap extends ScopedClass {
 		const skills: StandardStrainSkill[] = this.difficultyCalculator[
 			// biome-ignore lint/complexity/useLiteralKeys: Access Private
 			"_createSkills"
-		](beatmap, modsCombination);
+		](beatmap, modsCombination) as StandardStrainSkill[];
 
 		// biome-ignore lint/complexity/useLiteralKeys: Access Private
 		const aimStrainPeaks = skills[1]["_strainPeaks"];
 		// biome-ignore lint/complexity/useLiteralKeys: Access Private
 		const speedStrainPeaks = skills[1]["_strainPeaks"];
 
-		for (const hitObject of this.difficultyCalculator._getDifficultyHitObjects(
+		for (const hitObject of this.difficultyCalculator["_getDifficultyHitObjects"](
 			beatmap,
 			clockRate,
 		)) {
