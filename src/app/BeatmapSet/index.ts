@@ -1,5 +1,6 @@
 import { Tween } from "@tweenjs/tween.js";
 import type { DifficultyPoint, SamplePoint, TimingPoint } from "osu-classes";
+import { BeatmapDecoder } from "osu-parsers";
 import { Assets, type FederatedWheelEvent } from "pixi.js";
 import * as Tone from "tone";
 import { Context } from "tone";
@@ -17,7 +18,7 @@ import type Play from "@/UI/main/controls/Play";
 import type ProgressBar from "@/UI/main/controls/ProgressBar";
 import type Timestamp from "@/UI/main/controls/Timestamp";
 import type Background from "@/UI/main/viewer/Background";
-import type Gameplays from "@/UI/main/viewer/Gameplay/Gameplays";
+import type Gameplays from "@/UI/main/viewer/Gameplays";
 import type Timeline from "@/UI/main/viewer/Timeline";
 import type Metadata from "@/UI/sidepanel/Metadata";
 import type DifficultyGraph from "@/UI/sidepanel/Modding/DifficultyGraph";
@@ -28,9 +29,13 @@ import Video from "@/Video";
 import extraMode from "/assets/extra-mode.svg?raw";
 import { inject, provide, ScopedClass } from "../Context";
 import type { Resource } from "../ZipHandler";
-import Beatmap from "./Beatmap";
-import type DrawableHitCircle from "./Beatmap/HitObjects/DrawableHitCircle";
-import type DrawableSlider from "./Beatmap/HitObjects/DrawableSlider";
+import type Beatmap from "./Beatmap";
+import ManiaBeatmap from "./Beatmap/Rulesets/Mania/ManiaBeatmap";
+import ManiaGameplay from "./Beatmap/Rulesets/Mania/ManiaGameplay";
+import type DrawableHitCircle from "./Beatmap/Rulesets/Standard/HitObjects/DrawableHitCircle";
+import type DrawableSlider from "./Beatmap/Rulesets/Standard/HitObjects/DrawableSlider";
+import StandardBeatmap from "./Beatmap/Rulesets/Standard/StandardBeatmap";
+import StandardGameplay from "./Beatmap/Rulesets/Standard/StandardGameplay";
 import Storyboard from "./Beatmap/Storyboard";
 import SampleManager from "./SampleManager";
 
@@ -45,7 +50,7 @@ export default class BeatmapSet extends ScopedClass {
 		super();
 		this.playbackRate = inject<ExperimentalConfig>("config/experimental")
 			?.doubleTime
-			? 1.5
+			? (inject<ExperimentalConfig>("config/experimental")?.rateChange ?? 1.5)
 			: 1;
 		this.context.provide("audioContext", this.audioContext);
 		this.context.provide("resources", resources);
@@ -79,7 +84,26 @@ export default class BeatmapSet extends ScopedClass {
 				if (!shouldPlaybackChange) return;
 
 				this.toggle();
-				this.playbackRate = val.includes("DT") ? 1.5 : 1;
+				this.playbackRate = val.includes("DT")
+					? (inject<ExperimentalConfig>("config/experimental")?.rateChange ??
+						1.5)
+					: 1;
+				this.toggle();
+			},
+		);
+
+		inject<ExperimentalConfig>("config/experimental")?.onChange(
+			"rateChange",
+			({
+				playbackRate,
+				isRateChange,
+			}: {
+				isRateChange: boolean;
+				playbackRate: number;
+			}) => {
+				if (!isRateChange) return;
+				this.toggle();
+				this.playbackRate = playbackRate;
 				this.toggle();
 			},
 		);
@@ -91,8 +115,6 @@ export default class BeatmapSet extends ScopedClass {
 			new Skin(this.context.consume<Map<string, Resource>>("resources")),
 		);
 		await skin.init();
-
-		console.log(skin);
 	}
 
 	async loadResources() {
@@ -117,13 +139,32 @@ export default class BeatmapSet extends ScopedClass {
 				([filename]) => filename.split(".").at(-1) === "osu",
 			) ?? [];
 
+		const decoder = new BeatmapDecoder();
 		this.difficulties = (
 			await Promise.all<Promise<Beatmap | null>[]>(
 				osuFiles.map(async ([_, blob]) => {
 					const rawString = await blob?.text();
 
 					if (!rawString) return null;
-					return new Beatmap(rawString).hook(this.context);
+					const beatmap = decoder.decodeFromString(rawString);
+
+					switch (beatmap.originalMode) {
+						case 0: {
+							const beatmap = new StandardBeatmap(rawString).hook(this.context);
+							beatmap.container = new StandardGameplay(beatmap);
+							return beatmap;
+						}
+						case 3: {
+							const beatmap = new ManiaBeatmap(rawString).hook(this.context);
+							beatmap.container = new ManiaGameplay(beatmap);
+							return beatmap;
+						}
+						default: {
+							const beatmap = new StandardBeatmap(rawString).hook(this.context);
+							beatmap.container = new StandardGameplay(beatmap);
+							return beatmap;
+						}
+					}
 				}),
 			)
 		)
@@ -188,6 +229,12 @@ export default class BeatmapSet extends ScopedClass {
 	audioKey = "";
 	async loadAudio(beatmap: Beatmap) {
 		if (beatmap.data.general.audioFilename === this.audioKey) return;
+
+		const playButton = inject<Play>("ui/main/controls/play");
+		if (playButton)
+			playButton.sprite.texture = await Assets.load("./assets/play.png");
+
+		this.context.consume<Audio>("audio")?.pause();
 
 		this.audioKey = beatmap.data.general.audioFilename;
 		console.time("Constructing audio");
@@ -304,29 +351,7 @@ export default class BeatmapSet extends ScopedClass {
 		inject<Loading>("ui/loading")?.setText("Loading audio and background");
 
 		document.title = `${beatmap.data.metadata.artist} - ${beatmap.data.metadata.title} [${beatmap.data.metadata.version}] | JoSu!`;
-
-		const el = document.querySelector<HTMLSpanElement>("#masterDiff");
-		if (el) {
-			el.innerHTML = `
-			<span class="truncate">${beatmap.data.metadata.version}</span>
-			<br/>
-			<span class="text-xs">
-				CS <span class="font-medium">${beatmap.data.difficulty.circleSize.toFixed(1).replace(".0", "")}</span> / 
-				AR <span class="font-medium">${beatmap.difficultyAttributes.approachRate.toFixed(1).replace(".0", "")}</span> / 
-				OD <span class="font-medium">${beatmap.difficultyAttributes.overallDifficulty.toFixed(1).replace(".0", "")}</span> / 
-				HP <span class="font-medium">${beatmap.difficultyAttributes.drainRate.toFixed(1).replace(".0", "")}</span> 
-			</span>`;
-		}
-		const svg = document.querySelector<SVGSVGElement>("#extraMode");
-		if (svg) {
-			const color = getDiffColour(beatmap.difficultyAttributes.starRating);
-			svg.innerHTML = svg.innerHTML
-				.replace(/stroke=".*"/g, `stroke="${color}"`)
-				.replace(/fill=".*"/, `fill="${color}"`);
-		}
-		const sr = document.querySelector<HTMLSpanElement>("#masterSR");
-		if (sr)
-			sr.textContent = `${beatmap.difficultyAttributes.starRating.toFixed(2)}★`;
+		beatmap.recalculateDifficulty(true);
 
 		const storyboard = this.context.consume<Storyboard>("storyboard");
 		await Promise.all([
@@ -348,7 +373,11 @@ export default class BeatmapSet extends ScopedClass {
 	async loadBeatmap(beatmap: Beatmap, index?: number) {
 		inject<Loading>("ui/loading")?.setText("Loading hitObjects");
 
-		if (!params.has("sb_only") && !params.has("hs_only") && !params.has("i_have_intel_graphics")) {
+		if (
+			!params.has("sb_only") &&
+			!params.has("hs_only") &&
+			!params.has("i_have_intel_graphics")
+		) {
 			inject<Gameplays>("ui/main/viewer/gameplays")?.addGameplay(
 				beatmap.container,
 				index,
@@ -403,6 +432,7 @@ export default class BeatmapSet extends ScopedClass {
 		);
 
 		this.master = beatmap;
+		console.log(beatmap);
 
 		this.setIds();
 	}

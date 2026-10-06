@@ -49,6 +49,31 @@ export class Game {
 					params.set("m", modsString);
 				}
 
+				if (!modsString.includes("DT")) {
+					params.delete("rate");
+				} else {
+					params.set("rate", config.experimental.rateChange.toString());
+				}
+
+				window.history.replaceState(null, "", `?${params.toString()}`);
+			},
+		);
+
+		config.experimental.onChange(
+			"rateChange",
+			({
+				playbackRate,
+				isRateChange,
+			}: {
+				playbackRate: number;
+				isRateChange: boolean;
+			}) => {
+				if (!isRateChange) {
+					params.delete("rate");
+				} else {
+					params.set("rate", playbackRate.toString());
+				}
+
 				window.history.replaceState(null, "", `?${params.toString()}`);
 			},
 		);
@@ -84,8 +109,8 @@ export class Game {
 			antialias: inject<RendererConfig>("config/renderer")?.antialiasing,
 			powerPreference: "high-performance",
 			backgroundAlpha: 0,
-			// useBackBuffer: true,
-			// clearBeforeRender: true,
+			useBackBuffer: true,
+			clearBeforeRender: true,
 			// depth: true,
 			autoDensity: true,
 			resolution: devicePixelRatio,
